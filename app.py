@@ -44,9 +44,91 @@ def login():
 
             return redirect(url_for("dashboard"))
         else:
-            return "Invalid Username or Password"
+            return render_template("login.html", error="Invalid Username or Password")
 
     return render_template("login.html")
+
+
+# ---------- ADMIN ROUTES ----------
+
+@app.route("/admin-login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+
+        cursor.execute("""
+            SELECT * FROM admin
+            WHERE username=%s AND password=%s
+        """, (username, password))
+
+        admin = cursor.fetchone()
+
+        if admin:
+            session["admin_id"] = admin["id"]
+            session["admin_username"] = admin["username"]
+            return redirect(url_for("admin_dashboard"))
+        else:
+            return render_template("login.html", error="Invalid Admin Username or Password")
+
+    return render_template("login.html")
+
+
+@app.route("/admin-dashboard")
+def admin_dashboard():
+    if "admin_id" not in session:
+        return redirect(url_for("login"))
+
+    # Get all teachers
+    cursor.execute("SELECT * FROM teacher ORDER BY full_name")
+    teachers = cursor.fetchall()
+
+    return render_template("admin_dashboard.html", teachers=teachers)
+
+
+@app.route("/add-teacher", methods=["GET", "POST"])
+def add_teacher():
+    if "admin_id" not in session:
+        return redirect(url_for("login"))
+
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+        full_name = request.form["full_name"]
+        standard = request.form["standard"]
+        division = request.form["division"]
+
+        # Check if username already exists
+        cursor.execute("SELECT id FROM teacher WHERE username=%s", (username,))
+        if cursor.fetchone():
+            return render_template("add_teacher.html", error="Username already exists!")
+
+        cursor.execute("""
+            INSERT INTO teacher (username, password, full_name, standard, division)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (username, password, full_name, standard, division))
+        db.commit()
+
+        return render_template("add_teacher.html", success="Teacher added successfully!")
+
+    return render_template("add_teacher.html")
+
+
+@app.route("/delete-teacher/<int:teacher_id>")
+def delete_teacher(teacher_id):
+    if "admin_id" not in session:
+        return redirect(url_for("login"))
+
+    cursor.execute("DELETE FROM teacher WHERE id=%s", (teacher_id,))
+    db.commit()
+
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin-logout")
+def admin_logout():
+    session.clear()
+    return redirect(url_for("home"))
 
 
 

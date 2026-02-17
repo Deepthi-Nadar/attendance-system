@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Dashboard | GBM High School</title>
+    <style>
+        :root {
+            --primary: #0f766e;
+            --secondary: #0b3c5d;
+            --accent: #f59e0b;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Segoe UI", Arial, sans-serif;
+        }
+        
+        body {
+            background: #f5f5f5;
+        }
+        
+        /* Header */
+        header {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        header h1 {
+            font-size: 24px;
+        }
+        
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        
+        .header-right a {
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 5px;
+            transition: 0.3s;
+        }
+        
+        .header-right a:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        /* Container */
+        .container {
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+        
+        /* Cards */
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        
+        .card h2 {
+            color: var(--primary);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            border: none;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        
+        .btn:hover {
+            background: #0d645d;
+        }
+        
+        .btn-danger {
+            background: #dc2626;
+        }
+        
+        .btn-danger:hover {
+            background: #b91c1c;
+        }
+        
+        /* Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        table th, table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        table th {
+            background: #f9fafb;
+            color: var(--secondary);
+            font-weight: 600;
+        }
+        
+        table tr:hover {
+            background: #f9fafb;
+        }
+        
+        /* Stats */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        
+        .stat-card h3 {
+            color: var(--primary);
+            font-size: 36px;
+            margin-bottom: 5px;
+        }
+        
+        .stat-card p {
+            color: #6b7280;
+            font-size: 14px;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #6b7280;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>GBM HIGH SCHOOL - Admin Dashboard</h1>
+        <div class="header-right">
+            <span>Welcome, {{ session['admin_username'] }}</span>
+            <a href="{{ url_for('admin_logout') }}">Logout</a>
+        </div>
+    </header>
+    
+    <div class="container">
+        <!-- Stats -->
+        <div class="stats">
+            <div class="stat-card">
+                <h3>{{ teachers|length }}</h3>
+                <p>Total Teachers</p>
+            </div>
+            <div class="stat-card">
+                <h3>Attendance System</h3>
+                <p>Manage School Staff</p>
+            </div>
+        </div>
+        
+        <!-- Teachers List -->
+        <div class="card">
+            <h2>
+                Teachers List
+                <a href="{{ url_for('add_teacher') }}" class="btn">Add New Teacher</a>
+            </h2>
+            
+            {% if teachers %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Full Name</th>
+                        <th>Username</th>
+                        <th>Standard</th>
+                        <th>Division</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for teacher in teachers %}
+                    <tr>
+                        <td>{{ teacher.id }}</td>
+                        <td>{{ teacher.full_name }}</td>
+                        <td>{{ teacher.username }}</td>
+                        <td>{{ teacher.standard }}</td>
+                        <td>{{ teacher.division }}</td>
+                        <td>
+                            <a href="{{ url_for('delete_teacher', teacher_id=teacher.id) }}" 
+                               class="btn btn-danger"
+                               onclick="return confirm('Are you sure you want to delete this teacher?')">Delete</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <p>No teachers found. Click "Add New Teacher" to add one.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>
