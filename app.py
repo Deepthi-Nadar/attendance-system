@@ -1,17 +1,32 @@
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, render_template, request, redirect, url_for, session, flash
 import mysql.connector
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = "secret123"   # later change this
+app.secret_key = os.environ.get("SECRET_KEY", "change-me-in-production")
 
 # ---------- DATABASE CONNECTION ----------
 db = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password="Pyms@123",          # your MySQL password
-    database="attendance_db"
+    host=os.environ.get("DB_HOST", "localhost"),
+    user=os.environ.get("DB_USER", "root"),
+    password=os.environ.get("DB_PASSWORD", ""),
+    database=os.environ.get("DB_NAME", "attendance_db")
 )
 cursor = db.cursor(dictionary=True, buffered=True)
+
+# ---------- AUTO MIGRATION: Add subject column if missing ----------
+try:
+    cursor.execute("SHOW COLUMNS FROM teacher LIKE 'subject'")
+    if not cursor.fetchone():
+        raw_cursor = db.cursor()
+        raw_cursor.execute("ALTER TABLE teacher ADD COLUMN subject VARCHAR(50) AFTER full_name")
+        db.commit()
+        raw_cursor.close()
+except Exception:
+    pass  # Ignore if migration fails
 
 
 # ---------- ROUTES ----------
@@ -39,6 +54,7 @@ def login():
         if teacher:
             session["teacher_id"] = teacher["id"]
             session["teacher_name"] = teacher["full_name"]
+            session["teacher_subject"] = teacher.get("subject") or "Teacher"
             session["standard"] = teacher["standard"]
             session["division"] = teacher["division"]
 
@@ -77,7 +93,7 @@ def admin_login():
 @app.route("/admin-dashboard")
 def admin_dashboard():
     if "admin_id" not in session:
-        return redirect(url_for("login"))
+        return redirect(url_for("admin_login"))
 
     # Get all teachers
     cursor.execute("SELECT * FROM teacher ORDER BY full_name")
@@ -89,12 +105,13 @@ def admin_dashboard():
 @app.route("/add-teacher", methods=["GET", "POST"])
 def add_teacher():
     if "admin_id" not in session:
-        return redirect(url_for("login"))
+        return redirect(url_for("admin_login"))
 
     if request.method == "POST":
         username = request.form["username"]
         password = request.form["password"]
         full_name = request.form["full_name"]
+        subject = request.form["subject"]
         standard = request.form["standard"]
         division = request.form["division"]
 
@@ -104,9 +121,9 @@ def add_teacher():
             return render_template("add_teacher.html", error="Username already exists!")
 
         cursor.execute("""
-            INSERT INTO teacher (username, password, full_name, standard, division)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (username, password, full_name, standard, division))
+            INSERT INTO teacher (username, password, full_name, subject, standard, division)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (username, password, full_name, subject, standard, division))
         db.commit()
 
         return render_template("add_teacher.html", success="Teacher added successfully!")
@@ -165,6 +182,86 @@ def select_class():
     return render_template("select_class.html")
 
 
+@app.route("/add-students", methods=["GET", "POST"])
+def add_students():
+    if "teacher_id" not in session:
+        return redirect(url_for("login"))
+
+    if request.method == "POST":
+        standard = request.form["standard"]
+        division = request.form["division"]
+        students_text = request.form.get("students_text", "").strip()
+
+        if not students_text:
+            return render_template("add_students.html", error="Please enter at least one student.")
+
+        added, errors = _add_students_to_class(standard, division, students_text)
+
+        if errors:
+            msg = f"Added {added} student(s). Issues: " + "; ".join(errors[:5])
+            if len(errors) > 5:
+                msg += f" (+{len(errors)-5} more)"
+            return render_template("add_students.html", success=msg)
+        return render_template("add_students.html", success=f"Successfully added {added} student(s)!")
+
+    return render_template("add_students.html")
+
+
+def _add_students_to_class(standard, division, students_text):
+    """Add students and return (added_count, errors_list)."""
+    added = 0
+    errors = []
+    for line in students_text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        parts = [p.strip() for p in line.split(",", 1)]
+        if len(parts) < 2:
+            errors.append(f"Invalid: '{line}' (use: Roll, Name)")
+            continue
+        try:
+            roll = int(parts[0])
+        except ValueError:
+            errors.append(f"Invalid roll: '{parts[0]}'")
+            continue
+        name = parts[1]
+        if not name:
+            errors.append(f"Name required for roll {roll}")
+            continue
+        cursor.execute(
+            "SELECT id FROM students WHERE standard=%s AND division=%s AND roll=%s",
+            (standard, division, roll)
+        )
+        if cursor.fetchone():
+            errors.append(f"Roll {roll} already exists")
+            continue
+        cursor.execute(
+            "INSERT INTO students (roll, name, standard, division) VALUES (%s, %s, %s, %s)",
+            (roll, name, standard, division)
+        )
+        added += 1
+    db.commit()
+    return added, errors
+
+
+@app.route("/mark-attendance/<standard>/<division>/add-students", methods=["POST"])
+def add_students_in_mark(standard, division):
+    """Add students from mark attendance page, then redirect back."""
+    if "teacher_id" not in session:
+        return redirect(url_for("login"))
+    students_text = request.form.get("students_text", "").strip()
+    if not students_text:
+        return redirect(url_for("mark_attendance", standard=standard, division=division))
+    added, errors = _add_students_to_class(standard, division, students_text)
+    if errors:
+        msg = f"Added {added}. " + "; ".join(errors[:3])
+        if len(errors) > 3:
+            msg += f" (+{len(errors)-3} more)"
+    else:
+        msg = f"Added {added} student(s)!"
+    return redirect(url_for("mark_attendance", standard=standard, division=division, add_msg=msg))
+
+
 from datetime import date
 
 @app.route("/mark-attendance/<standard>/<division>", methods=["GET", "POST"])
@@ -185,7 +282,8 @@ def mark_attendance(standard, division):
         already_marked = cursor.fetchone()
 
         if already_marked:
-            return "Attendance already marked for today!"
+            flash("Attendance has already been marked for this class today.", "info")
+            return redirect(url_for("dashboard"))
 
         # get students
         cursor.execute(
@@ -212,12 +310,14 @@ def mark_attendance(standard, division):
         ORDER BY roll
     """, (standard, division))
     students = cursor.fetchall()
+    add_msg = request.args.get("add_msg")
 
     return render_template(
         "mark_attendance.html",
         students=students,
         standard=standard,
-        division=division
+        division=division,
+        add_msg=add_msg
     )
 
 @app.route("/students/<standard>/<division>")
