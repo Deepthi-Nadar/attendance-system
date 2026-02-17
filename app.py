@@ -134,7 +134,7 @@ def add_teacher():
 @app.route("/delete-teacher/<int:teacher_id>")
 def delete_teacher(teacher_id):
     if "admin_id" not in session:
-        return redirect(url_for("login"))
+        return redirect(url_for("admin_login"))
 
     cursor.execute("DELETE FROM teacher WHERE id=%s", (teacher_id,))
     db.commit()
