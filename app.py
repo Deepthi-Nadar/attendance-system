@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 import mysql.connector
 import os
 from dotenv import load_dotenv
+from werkzeug.security import generate_password_hash, check_password_hash
 
 load_dotenv()
 
@@ -44,14 +45,23 @@ def login():
         username = request.form["username"]
         password = request.form["password"]
 
-        cursor.execute("""
-            SELECT * FROM teacher
-            WHERE username=%s AND password=%s
-        """, (username, password))
+        cursor.execute(
+            "SELECT * FROM teacher WHERE username=%s",
+            (username,),
+        )
 
         teacher = cursor.fetchone()
 
+        is_valid = False
         if teacher:
+            stored_pw = teacher["password"]
+            # Support both hashed and legacy plain-text passwords
+            try:
+                is_valid = check_password_hash(stored_pw, password)
+            except Exception:
+                is_valid = stored_pw == password
+
+        if teacher and is_valid:
             session["teacher_id"] = teacher["id"]
             session["teacher_name"] = teacher["full_name"]
             session["teacher_subject"] = teacher.get("subject") or "Teacher"
@@ -73,14 +83,23 @@ def admin_login():
         username = request.form["username"]
         password = request.form["password"]
 
-        cursor.execute("""
-            SELECT * FROM admin
-            WHERE username=%s AND password=%s
-        """, (username, password))
+        cursor.execute(
+            "SELECT * FROM admin WHERE username=%s",
+            (username,),
+        )
 
         admin = cursor.fetchone()
 
+        is_valid = False
         if admin:
+            stored_pw = admin["password"]
+            # Support both hashed and legacy plain-text passwords
+            try:
+                is_valid = check_password_hash(stored_pw, password)
+            except Exception:
+                is_valid = stored_pw == password
+
+        if admin and is_valid:
             session["admin_id"] = admin["id"]
             session["admin_username"] = admin["username"]
             return redirect(url_for("admin_dashboard"))
@@ -109,7 +128,7 @@ def add_teacher():
 
     if request.method == "POST":
         username = request.form["username"]
-        password = request.form["password"]
+        raw_password = request.form["password"]
         full_name = request.form["full_name"]
         subject = request.form["subject"]
         standard = request.form["standard"]
@@ -120,10 +139,15 @@ def add_teacher():
         if cursor.fetchone():
             return render_template("add_teacher.html", error="Username already exists!")
 
-        cursor.execute("""
+        hashed_password = generate_password_hash(raw_password)
+
+        cursor.execute(
+            """
             INSERT INTO teacher (username, password, full_name, subject, standard, division)
             VALUES (%s, %s, %s, %s, %s, %s)
-        """, (username, password, full_name, subject, standard, division))
+        """,
+            (username, hashed_password, full_name, subject, standard, division),
+        )
         db.commit()
 
         return render_template("add_teacher.html", success="Teacher added successfully!")
@@ -521,8 +545,11 @@ def export_weekly_defaulters():
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
+def create_app():
+    return app
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
-
+    debug_flag = os.environ.get("FLASK_DEBUG", "1") == "1"
+    port = int(os.environ.get("PORT", "5000"))
+    app.run(host="0.0.0.0", port=port, debug=debug_flag)
